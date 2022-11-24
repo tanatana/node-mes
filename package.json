@@ -1,0 +1,22 @@
+{
+  "name": "mes",
+  "version": "0.1.0",
+  "description": "The mes project provides mes file parsing for Node.js.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "tanatana",
+  "license": "MIT",
+  "dependencies": {
+    "@types/node": "^18.11.9",
+    "encoding-japanese": "^2.0.0",
+    "typescript": "^4.8.4"
+  },
+  "devDependencies": {
+    "@types/encoding-japanese": "^2.0.1"
+  }
+}
