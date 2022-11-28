@@ -72,7 +72,7 @@ function getTargetData(data: Buffer): Data[] {
   })
 
   const targetData = dataCursors.map((cursor) => {
-    return unmarshalData(tgtsBuffer.subarray(...cursor))
+    return unmarshalData(tgtsBuffer.subarray(...cursor), true)
   })
   return targetData
 }
@@ -105,7 +105,7 @@ function getSampleData(data: Buffer): Data[] {
   })
 
   const sampleData = dataCursors.map((cursor) => {
-    return unmarshalData(splsBuffer.subarray(...cursor))
+    return unmarshalData(splsBuffer.subarray(...cursor), false)
   })
   return sampleData
 }
@@ -155,18 +155,46 @@ type Data = {
     specularComponentProcess: string
     captureCircleVal: number
     captureCircle: string
-    underInvestigation: underInvestigationProperty[]
+    underInvestigation: UnderInvestigationProperty[]
   }
   targetDataNo: number
   targetDataLabel: string
   managementData: [string, number][]
   numericalData: [string, number][]
+  threshold?: Threshold
+  parameters?: Parameters
 }
 
-type underInvestigationProperty = {
+type ThresholdItem = { values: [number, number]; active: boolean }
+type Threshold = {
+  cmc: ThresholdItem
+  dEab: ThresholdItem
+  dL: ThresholdItem
+  da: ThresholdItem
+  db: ThresholdItem
+}
+
+const parametersIndex = ['cmc-c', 'cmc-l', 'dE94-l', 'dE94-c', 'dE94-h', 'dE00-l', 'dE00-c', 'dE00-h'] as const
+type ParametersKey = typeof parametersIndex[number]
+type Parameters = { [key in ParametersKey]: number }
+
+type UnderInvestigationProperty = {
   mark: Buffer
   value: number
   text: string
+}
+
+function unmarshalThresholdData(d: Buffer, mark: Buffer): [[number, number], boolean, number] {
+  const curr = search(d, mark)
+  if (curr === -1) {
+    throw new Error(`marker is not found: ${mark}`)
+  }
+
+  const [_, markNextCurr] = slice(d, curr, mark.length)
+  const [markVal1, markVal1NextCurr] = slice(d, markNextCurr, 4)
+  const [markVal2, markVal2NextCurr] = slice(d, markVal1NextCurr, 4)
+  const [active, activeNextCurr] = slice(d, markVal2NextCurr, 1)
+  return [[markVal1.readFloatLE(), markVal2.readFloatLE()], active.equals(Buffer.from([0x01])), activeNextCurr]
 }
 
 function unmarshalDataProperty(d: Buffer, mark: Buffer): [number, string] {
@@ -206,7 +234,7 @@ function unmarshalNumericalData(d: Buffer, mark: Buffer): [string, number] {
   return [Encoding.convert(mark.subarray(1), { from: 'SJIS', to: 'UNICODE', type: 'string' }), data]
 }
 
-function unmarshalData(d: Buffer): Data {
+function unmarshalData(d: Buffer, isTarget: boolean): Data {
   const dataNo = d.subarray(5, 9).readInt32LE()
 
   const labelLength = d.subarray(9, 10).readInt8()
@@ -314,7 +342,7 @@ function unmarshalData(d: Buffer): Data {
     Buffer.from([0xf7, 0x07, 0x00, 0x00]),
   ]
 
-  const underInvestigation = uniderInvestigationMarkers.map((mark): underInvestigationProperty => {
+  const underInvestigation = uniderInvestigationMarkers.map((mark): UnderInvestigationProperty => {
     const [value, text] = unmarshalDataProperty(metaBlock, mark)
     return { mark, value, text }
   })
@@ -330,6 +358,43 @@ function unmarshalData(d: Buffer): Data {
       ;[targetDataNo, targetDataLabel] = unmarshalDataProperty(metaBlock, Buffer.from([0x68, 0x01, 0x00, 0x00]))
     } catch (e) {
       throw new Error('there are no target data marker: [0x90, 0x01, 0x00, 0x00] or [0x68, 0x01, 0x00, 0x00]')
+    }
+  }
+
+  // for TGT entity
+  let threshold: Threshold | undefined = undefined
+  let parameters: Parameters | undefined = undefined
+  if (isTarget) {
+    const [cmc, cmcActive] = unmarshalThresholdData(metaBlock, Buffer.from([0x7f, 0xc1, 0xff, 0xff]))
+    const [dEab, dEabActive] = unmarshalThresholdData(metaBlock, Buffer.from([0x80, 0xc1, 0xff, 0xff]))
+    const [dL, dlActive] = unmarshalThresholdData(metaBlock, Buffer.from([0xa1, 0xd4, 0xff, 0xff]))
+    const [da, daActive] = unmarshalThresholdData(metaBlock, Buffer.from([0xa2, 0xd4, 0xff, 0xff]))
+    const [db, dbActive, dbNextCurr] = unmarshalThresholdData(metaBlock, Buffer.from([0xa3, 0xd4, 0xff, 0xff]))
+
+    threshold = {
+      cmc: { values: cmc, active: cmcActive },
+      dEab: { values: dEab, active: dEabActive },
+      db: { values: dL, active: dlActive },
+      da: { values: da, active: daActive },
+      dL: { values: db, active: dbActive },
+    }
+
+    const [paramsLengthBuff, paramsNextCurr] = slice(metaBlock, dbNextCurr, 4)
+    const paramsLength = paramsLengthBuff.readInt32LE()
+    parameters = {
+      'cmc-c': 2.0,
+      'cmc-l': 1.0,
+      'dE94-l': 1.0,
+      'dE94-c': 1.0,
+      'dE94-h': 1.0,
+      'dE00-l': 1.0,
+      'dE00-c': 1.0,
+      'dE00-h': 1.0,
+    }
+    for (let i = 0; i < paramsLength; i++) {
+      const [v] = slice(metaBlock, paramsNextCurr + i * 4, 4)
+      const k = parametersIndex[i]
+      parameters[k] = v.readFloatLE()
     }
   }
 
@@ -393,6 +458,8 @@ function unmarshalData(d: Buffer): Data {
     targetDataLabel,
     managementData,
     numericalData,
+    threshold,
+    parameters,
   }
 }
 
