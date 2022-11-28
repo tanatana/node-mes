@@ -126,6 +126,7 @@ function getXYZFromReflectData(deviceName: string, reflectData: number[]): { X: 
 type Data = {
   dataNo: number
   label: string
+  comment: string
   reflectDataCount: number
   reflectData: number[]
   X: number
@@ -212,21 +213,22 @@ function unmarshalData(d: Buffer): Data {
   const [labelBuffer, labelNextCurr] = slice(d, 10, labelLength)
   const label = Encoding.convert(labelBuffer, { from: 'SJIS', to: 'UNICODE', type: 'string' })
 
+  // label の次はコメントが入る
+  const [commentLengthBuf, commentLengthNextCurr] = slice(d, labelNextCurr, 1)
+  const commentLength = commentLengthBuf.readInt8()
+  const [commentBuf, commentNextCurr] = slice(d, commentLengthNextCurr, commentLength)
+  const comment = String(commentBuf)
+
   // afterLabel sequence
-  // よくわかってないです
-  const [afterLabelSeq1] = slice(d, labelNextCurr, 1)
-  if (!afterLabelSeq1.equals(Buffer.from([0x00]))) {
-    console.log(label, 'afterLabelSeq1 is not [0x00]', afterLabelSeq1)
-  }
   // seq2 - Target: 0x00, Sample: 0x01
-  const [afterLabelSeq2] = slice(d, labelNextCurr + 1, 1)
+  const [afterLabelSeq2] = slice(d, commentNextCurr, 1)
   if (!(afterLabelSeq2.equals(Buffer.from([0x00])) || afterLabelSeq2.equals(Buffer.from([0x01])))) {
     console.log(label, 'afterLabelSeq2 is not [0x00] or [0x01]', afterLabelSeq2)
   }
 
   // seq3 - 0x02 or 0x07
   // I don't know more detail.
-  const [afterLabelSeq3, afterLabelSeqNextCurr] = slice(d, labelNextCurr + 2, 1)
+  const [afterLabelSeq3, afterLabelSeqNextCurr] = slice(d, commentNextCurr + 1, 1)
   if (!afterLabelSeq3.equals(Buffer.from([0x02]))) {
     console.log(label, 'afterLabelSeq3 is not [0x02]', afterLabelSeq3)
   }
@@ -358,6 +360,7 @@ function unmarshalData(d: Buffer): Data {
   return {
     dataNo,
     label,
+    comment,
     reflectDataCount,
     reflectData,
     ...XYZ,
