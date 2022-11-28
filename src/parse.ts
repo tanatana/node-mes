@@ -381,6 +381,9 @@ function unmarshalData(d: Buffer, isTarget: boolean): Data {
 
     const [paramsLengthBuff, paramsNextCurr] = slice(metaBlock, dbNextCurr, 4)
     const paramsLength = paramsLengthBuff.readInt32LE()
+    if (paramsLength !== 8) {
+      throw new Error('unexpected length of color conversion parameters')
+    }
     parameters = {
       'cmc-c': 2.0,
       'cmc-l': 1.0,
